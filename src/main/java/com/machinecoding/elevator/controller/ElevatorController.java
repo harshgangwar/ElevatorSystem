@@ -25,6 +25,7 @@ public class ElevatorController {
         this.assignmentService = new AssignmentService(Objects.requireNonNull(schedulingStrategy));
     }
 
+    // Assigning a request to an elevator
     public synchronized int submitExternalRequest(ExternalRequest request) {
         Objects.requireNonNull(request);
         Elevator elevator = assignmentService.assign(elevators, request);
@@ -32,6 +33,16 @@ public class ElevatorController {
         return elevator.getId();
     }
 
+    /**
+     * Letting each elevator move independently.
+     * Each elevator has its own worker thread in ElevatorWorker.java. That means elevator 1 can move while elevator 2 is also moving. We do not want a big synchronized controller method to manage actual movement, because then one slow elevator could block unrelated elevators.
+     * Inside Elevator.java, each elevator protects its own mutable state with its own lock:
+         * private final ReentrantLock lock;
+         * private volatile int currentFloor;
+         * private volatile Direction direction;
+         * private volatile ElevatorStatus status;
+     * @param request
+     */
     public void submitInternalRequest(InternalRequest request) {
         Objects.requireNonNull(request);
         Elevator elevator = findElevator(request.getElevatorId())
