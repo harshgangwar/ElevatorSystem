@@ -9,19 +9,8 @@ public class MovingDownState implements ElevatorState {
         Integer nextFloor = elevator.pollNextDownStop();
 
         if (nextFloor == null) {
-            if (elevator.hasUpStops()) {
-                elevator.setDirection(Direction.UP);
-                elevator.setState(new MovingUpState());
-            } else {
-                elevator.setDirection(Direction.IDLE);
-                elevator.setState(new IdleState());
-            }
-            return;
-        }
-
-        if (nextFloor > elevator.getCurrentFloor()) {
-            elevator.getUpQueue().offer(nextFloor);
-            elevator.setState(new MovingUpState());
+            elevator.setDirection(Direction.IDLE);
+            elevator.setState(new IdleState());
             return;
         }
 
@@ -29,4 +18,3 @@ public class MovingDownState implements ElevatorState {
         elevator.setState(new DoorOpenState());
     }
 }
-

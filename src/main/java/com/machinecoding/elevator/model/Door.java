@@ -1,7 +1,7 @@
 package com.machinecoding.elevator.model;
 
 public class Door {
-    private volatile DoorStatus status = DoorStatus.CLOSED;
+    private DoorStatus status = DoorStatus.CLOSED;
 
     public DoorStatus getStatus() {
         return status;
@@ -15,4 +15,3 @@ public class Door {
         status = DoorStatus.CLOSED;
     }
 }
-

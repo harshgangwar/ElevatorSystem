@@ -1,23 +1,22 @@
 package com.machinecoding.elevator.model;
 
-public class InternalRequest extends ElevatorRequest {
+public class InternalRequest {
     private final int elevatorId;
+    private final int destinationFloor;
 
     public InternalRequest(int elevatorId, int destinationFloor) {
-        super(destinationFloor);
+        if (destinationFloor < 0) {
+            throw new IllegalArgumentException("Floor cannot be negative");
+        }
         this.elevatorId = elevatorId;
+        this.destinationFloor = destinationFloor;
     }
 
     public int getElevatorId() {
         return elevatorId;
     }
 
-    @Override
-    public String toString() {
-        return "InternalRequest{requestId=" + getRequestId()
-                + ", elevatorId=" + elevatorId
-                + ", destinationFloor=" + getFloor()
-                + '}';
+    public int getDestinationFloor() {
+        return destinationFloor;
     }
 }
-

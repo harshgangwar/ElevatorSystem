@@ -1,41 +1,22 @@
-# Elevator System Machine Coding Project
+# Elevator System LLD Interview Project
 
-A complete, self-contained Java implementation of an elevator dispatch system with:
+This is a deliberately simple Java elevator-system implementation for low-level
+design and machine-coding interviews.
 
-- State pattern for elevator lifecycle behavior
-- Strategy pattern for assigning requests to elevators
-- Observer pattern for displays and monitoring
-- Thread-safe scheduling and request queues
-- One worker thread per elevator
-- Separate priority queues for upward and downward stops
-- Graceful startup/shutdown for demos and tests
-- Simple deadlock-avoidance rules documented in code and design notes
+It keeps the important patterns visible:
 
-The project uses only the JDK. No Maven or Gradle installation is required.
+- Models: `Elevator`, `Door`, `ExternalRequest`, `InternalRequest`
+- State pattern: `IdleState`, `MovingUpState`, `MovingDownState`, `DoorOpenState`, `MaintenanceState`
+- Strategy pattern: `NearestCarStrategy`, `ScanStrategy`, `ZoningStrategy`
+- Observer pattern: `ElevatorObserver`, `DisplayPanel`, `MonitoringSystem`
+- Singleton: `ElevatorController`
+- Basic concurrency: important controller/elevator methods are `synchronized`
 
-## Project Structure
-
-```text
-elevator-system/
-├── README.md
-├── pom.xml
-└── src/
-    ├── main/java/com/machinecoding/elevator/
-    │   ├── Main.java
-    │   ├── concurrency/
-    │   ├── controller/
-    │   ├── model/
-    │   ├── observer/
-    │   ├── service/
-    │   ├── state/
-    │   └── strategy/
-    └── test/java/com/machinecoding/elevator/
-        └── ElevatorSystemSmokeTest.java
-```
+No background workers, thread pools, services, or production-style plumbing are used.
 
 ## Run
 
-From this directory:
+From `elevator-system`:
 
 ```bash
 javac -d out $(find src/main/java src/test/java -name "*.java")
@@ -43,67 +24,26 @@ java -cp out com.machinecoding.elevator.Main
 java -cp out com.machinecoding.elevator.ElevatorSystemSmokeTest
 ```
 
-If Maven is available on another machine, this project also includes a minimal `pom.xml`:
+## Design
 
-```bash
-mvn compile
-mvn exec:java
-```
+`ElevatorController` is a singleton. It accepts external/internal requests and
+uses a pluggable `SchedulingStrategy` to pick an elevator.
 
-## Design Notes
+Each `Elevator` owns two priority queues:
 
-### State Pattern
+- `upStops`: min-heap, so lower upward floors are served first
+- `downStops`: max-heap, so higher downward floors are served first
 
-Each elevator owns a current `ElevatorState`. The worker loop repeatedly calls `state.handle(elevator)`, and the state decides the next transition:
+The elevator has a current `ElevatorState`. Calling `controller.step()` asks each
+elevator to process one state transition. This keeps the simulation easy to read.
 
-- `IdleState`
-- `MovingUpState`
-- `MovingDownState`
-- `DoorOpenState`
-- `MaintenanceState`
+## Concurrency For Interviews
 
-### Strategy Pattern
+The locking model is intentionally basic:
 
-`SchedulingStrategy` is swappable at runtime through `ElevatorController#setSchedulingStrategy`.
+- `submitExternalRequest` and `submitInternalRequest` are `synchronized`
+- elevator mutation methods like `addStop`, `moveToFloor`, `openDoor`, and `closeDoor` are `synchronized`
+- queues are plain `PriorityQueue` because access is protected by synchronized methods
 
-Implemented strategies:
-
-- `NearestCarStrategy`
-- `ScanStrategy`
-- `ZoningStrategy`
-
-### Observer Pattern
-
-Observers subscribe to elevator events:
-
-- `DisplayPanel`
-- `MonitoringSystem`
-
-The elevator uses `CopyOnWriteArrayList` so observers can be added while workers are running.
-
-### Concurrency
-
-- Each elevator runs in its own worker thread.
-- Requests are stored in `PriorityBlockingQueue`.
-- Shared elevator fields use `volatile` for visibility.
-- Controller assignment uses a `synchronized` method so two submitter threads cannot assign the same request at the same time.
-- Per-elevator mutations such as adding stops, moving, opening doors, and maintenance transitions are guarded by `synchronized` methods on the elevator object.
-- This keeps the locking model simple enough for LLD interviews while still allowing different elevators to run on different worker threads.
-
-### Deadlock Avoidance
-
-The code follows a simple lock policy:
-
-- The controller monitor is used only to choose an elevator and enqueue the request.
-- Each elevator owns its own monitor through `synchronized` methods.
-- Elevator monitors are never acquired while holding another elevator monitor.
-- Worker threads do not acquire the controller lock.
-- Observer callbacks never require controller locks.
-
-That keeps lock ownership shallow and prevents circular waits.
-
-### Interview Trade-off
-
-`synchronized` is intentionally simpler than `ReentrantLock`. A production version may prefer
-`ReentrantLock` for `tryLock`, timeouts, fairness, or finer-grained locking. For a machine-coding
-round, the current version is easier to write, explain, and debug.
+In an interview, this is usually enough. You can mention that a production version
+could use worker threads, blocking queues, and finer-grained locks.

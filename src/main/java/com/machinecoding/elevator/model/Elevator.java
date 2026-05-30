@@ -5,36 +5,27 @@ import com.machinecoding.elevator.state.ElevatorState;
 import com.machinecoding.elevator.state.IdleState;
 import com.machinecoding.elevator.state.MaintenanceState;
 
-import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.PriorityBlockingQueue;
-import java.util.concurrent.TimeUnit;
+import java.util.PriorityQueue;
+import java.util.Queue;
 
 public class Elevator {
-    private static final int DEFAULT_MOVE_DELAY_MILLIS = 150;
-    private static final int QUEUE_INITIAL_CAPACITY = 32;
-
     private final int id;
     private final int minFloor;
     private final int maxFloor;
     private final Door door;
-    private final PriorityBlockingQueue<Integer> upQueue;
-    private final PriorityBlockingQueue<Integer> downQueue;
+    private final Queue<Integer> upStops;
+    private final Queue<Integer> downStops;
     private final List<ElevatorObserver> observers;
 
-    private volatile int currentFloor;
-    private volatile Direction direction;
-    private volatile ElevatorStatus status;
-    private volatile ElevatorState state;
+    private int currentFloor;
+    private Direction direction;
+    private ElevatorStatus status;
+    private ElevatorState state;
 
     public Elevator(int id, int minFloor, int maxFloor) {
-        if (id <= 0) {
-            throw new IllegalArgumentException("Elevator id must be positive");
-        }
-        if (minFloor < 0 || maxFloor < minFloor) {
-            throw new IllegalArgumentException("Invalid floor range");
-        }
         this.id = id;
         this.minFloor = minFloor;
         this.maxFloor = maxFloor;
@@ -43,9 +34,9 @@ public class Elevator {
         this.status = ElevatorStatus.IDLE;
         this.state = new IdleState();
         this.door = new Door();
-        this.upQueue = new PriorityBlockingQueue<>(QUEUE_INITIAL_CAPACITY);
-        this.downQueue = new PriorityBlockingQueue<>(QUEUE_INITIAL_CAPACITY, Comparator.reverseOrder());
-        this.observers = new CopyOnWriteArrayList<>();
+        this.upStops = new PriorityQueue<>();
+        this.downStops = new PriorityQueue<>(Collections.reverseOrder());
+        this.observers = new ArrayList<>();
     }
 
     public int getId() {
@@ -60,94 +51,77 @@ public class Elevator {
         return maxFloor;
     }
 
-    public int getCurrentFloor() {
+    public synchronized int getCurrentFloor() {
         return currentFloor;
     }
 
-    public Direction getDirection() {
+    public synchronized Direction getDirection() {
         return direction;
     }
 
-    public ElevatorStatus getStatus() {
+    public synchronized ElevatorStatus getStatus() {
         return status;
     }
 
-    public ElevatorState getState() {
-        return state;
+    public synchronized int pendingStopCount() {
+        return upStops.size() + downStops.size();
     }
 
-    public Door getDoor() {
-        return door;
-    }
-
-    public PriorityBlockingQueue<Integer> getUpQueue() {
-        return upQueue;
-    }
-
-    public PriorityBlockingQueue<Integer> getDownQueue() {
-        return downQueue;
-    }
-
-    public void addObserver(ElevatorObserver observer) {
+    public synchronized void addObserver(ElevatorObserver observer) {
         observers.add(observer);
-    }
-
-    public void removeObserver(ElevatorObserver observer) {
-        observers.remove(observer);
     }
 
     public synchronized void addStop(int floor) {
         validateFloor(floor);
         if (status == ElevatorStatus.MAINTENANCE) {
-            throw new IllegalStateException("Elevator " + id + " is in maintenance");
+            throw new IllegalStateException("Elevator is in maintenance");
         }
 
         if (floor >= currentFloor) {
-            upQueue.offer(floor);
+            upStops.offer(floor);
         } else {
-            downQueue.offer(floor);
+            downStops.offer(floor);
         }
-        notifyObservers("stop queued: " + floor);
+        notifyObservers("stop added: " + floor);
     }
 
-    public Integer pollNextUpStop() {
-        return upQueue.poll();
+    public synchronized void processNextStep() {
+        state.handle(this);
     }
 
-    public Integer pollNextDownStop() {
-        return downQueue.poll();
+    public synchronized boolean isIdle() {
+        return status == ElevatorStatus.IDLE
+                && direction == Direction.IDLE
+                && !hasPendingStops()
+                && state instanceof IdleState;
     }
 
-    public boolean hasPendingStops() {
-        return !upQueue.isEmpty() || !downQueue.isEmpty();
+    public synchronized boolean hasPendingStops() {
+        return !upStops.isEmpty() || !downStops.isEmpty();
     }
 
-    public boolean hasUpStops() {
-        return !upQueue.isEmpty();
+    public synchronized boolean hasUpStops() {
+        return !upStops.isEmpty();
     }
 
-    public boolean hasDownStops() {
-        return !downQueue.isEmpty();
+    public synchronized boolean hasDownStops() {
+        return !downStops.isEmpty();
     }
 
-    public int pendingStopCount() {
-        return upQueue.size() + downQueue.size();
+    public synchronized Integer pollNextUpStop() {
+        return upStops.poll();
+    }
+
+    public synchronized Integer pollNextDownStop() {
+        return downStops.poll();
     }
 
     public synchronized void setDirection(Direction direction) {
-        if (this.direction == direction) {
-            return;
-        }
         this.direction = direction;
-        notifyObservers("direction changed");
     }
 
     public synchronized void setStatus(ElevatorStatus status) {
-        if (this.status == status) {
-            return;
-        }
         this.status = status;
-        notifyObservers("status changed");
     }
 
     public synchronized void setState(ElevatorState state) {
@@ -156,19 +130,12 @@ public class Elevator {
 
     public synchronized void moveToFloor(int targetFloor) {
         validateFloor(targetFloor);
-        if (targetFloor == currentFloor) {
-            notifyObservers("already at floor " + targetFloor);
-            return;
-        }
-
         direction = Direction.between(currentFloor, targetFloor);
         status = ElevatorStatus.MOVING;
-        notifyObservers("movement started toward " + targetFloor);
 
         while (currentFloor != targetFloor) {
             currentFloor += direction == Direction.UP ? 1 : -1;
-            notifyObservers("floor changed");
-            sleep(DEFAULT_MOVE_DELAY_MILLIS);
+            notifyObservers("reached floor " + currentFloor);
         }
     }
 
@@ -186,51 +153,37 @@ public class Elevator {
     }
 
     public synchronized void enterMaintenance() {
-        upQueue.clear();
-        downQueue.clear();
+        upStops.clear();
+        downStops.clear();
         direction = Direction.IDLE;
         status = ElevatorStatus.MAINTENANCE;
         state = new MaintenanceState();
-        notifyObservers("entered maintenance");
     }
 
     public synchronized void exitMaintenance() {
         status = ElevatorStatus.IDLE;
         state = new IdleState();
-        notifyObservers("exited maintenance");
     }
 
-    public synchronized ElevatorSnapshot snapshot() {
-        return new ElevatorSnapshot(
-                id,
-                currentFloor,
-                direction,
-                status,
-                pendingStopCount(),
-                minFloor,
-                maxFloor
-        );
+    @Override
+    public synchronized String toString() {
+        return "Elevator{id=" + id
+                + ", floor=" + currentFloor
+                + ", direction=" + direction
+                + ", status=" + status
+                + ", pendingStops=" + pendingStopCount()
+                + '}';
     }
 
     private void validateFloor(int floor) {
         if (floor < minFloor || floor > maxFloor) {
-            throw new IllegalArgumentException(
-                    "Floor " + floor + " is outside " + minFloor + "-" + maxFloor
-            );
+            throw new IllegalArgumentException("Invalid floor: " + floor);
         }
     }
 
     private void notifyObservers(String event) {
         for (ElevatorObserver observer : observers) {
             observer.update(id, currentFloor, direction, status, event);
-        }
-    }
-
-    private void sleep(int millis) {
-        try {
-            TimeUnit.MILLISECONDS.sleep(millis);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
         }
     }
 }

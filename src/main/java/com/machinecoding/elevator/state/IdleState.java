@@ -12,16 +12,11 @@ public class IdleState implements ElevatorState {
         if (elevator.hasUpStops()) {
             elevator.setDirection(Direction.UP);
             elevator.setState(new MovingUpState());
-            return;
-        }
-
-        if (elevator.hasDownStops()) {
+        } else if (elevator.hasDownStops()) {
             elevator.setDirection(Direction.DOWN);
             elevator.setState(new MovingDownState());
-            return;
+        } else {
+            elevator.setDirection(Direction.IDLE);
         }
-
-        elevator.setDirection(Direction.IDLE);
     }
 }
-
