@@ -12,12 +12,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class ElevatorController {
     private final List<Elevator> elevators;
     private final AssignmentService assignmentService;
-    private final ReentrantLock assignmentLock = new ReentrantLock(true);
 
     public ElevatorController(List<Elevator> elevators, SchedulingStrategy schedulingStrategy) {
         if (elevators == null || elevators.isEmpty()) {
@@ -27,16 +25,11 @@ public class ElevatorController {
         this.assignmentService = new AssignmentService(Objects.requireNonNull(schedulingStrategy));
     }
 
-    public int submitExternalRequest(ExternalRequest request) {
+    public synchronized int submitExternalRequest(ExternalRequest request) {
         Objects.requireNonNull(request);
-        assignmentLock.lock();
-        try {
-            Elevator elevator = assignmentService.assign(elevators, request);
-            elevator.addStop(request.getFloor());
-            return elevator.getId();
-        } finally {
-            assignmentLock.unlock();
-        }
+        Elevator elevator = assignmentService.assign(elevators, request);
+        elevator.addStop(request.getFloor());
+        return elevator.getId();
     }
 
     public void submitInternalRequest(InternalRequest request) {
@@ -48,13 +41,8 @@ public class ElevatorController {
         elevator.addStop(request.getFloor());
     }
 
-    public void setSchedulingStrategy(SchedulingStrategy schedulingStrategy) {
-        assignmentLock.lock();
-        try {
-            assignmentService.setSchedulingStrategy(schedulingStrategy);
-        } finally {
-            assignmentLock.unlock();
-        }
+    public synchronized void setSchedulingStrategy(SchedulingStrategy schedulingStrategy) {
+        assignmentService.setSchedulingStrategy(schedulingStrategy);
     }
 
     public void addObserver(ElevatorObserver observer) {
@@ -91,4 +79,3 @@ public class ElevatorController {
                 .findFirst();
     }
 }
-

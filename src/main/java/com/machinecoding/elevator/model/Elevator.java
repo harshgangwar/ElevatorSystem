@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class Elevator {
     private static final int DEFAULT_MOVE_DELAY_MILLIS = 150;
@@ -20,7 +19,6 @@ public class Elevator {
     private final int minFloor;
     private final int maxFloor;
     private final Door door;
-    private final ReentrantLock lock;
     private final PriorityBlockingQueue<Integer> upQueue;
     private final PriorityBlockingQueue<Integer> downQueue;
     private final List<ElevatorObserver> observers;
@@ -45,7 +43,6 @@ public class Elevator {
         this.status = ElevatorStatus.IDLE;
         this.state = new IdleState();
         this.door = new Door();
-        this.lock = new ReentrantLock(true);
         this.upQueue = new PriorityBlockingQueue<>(QUEUE_INITIAL_CAPACITY);
         this.downQueue = new PriorityBlockingQueue<>(QUEUE_INITIAL_CAPACITY, Comparator.reverseOrder());
         this.observers = new CopyOnWriteArrayList<>();
@@ -99,21 +96,16 @@ public class Elevator {
         observers.remove(observer);
     }
 
-    public void addStop(int floor) {
+    public synchronized void addStop(int floor) {
         validateFloor(floor);
         if (status == ElevatorStatus.MAINTENANCE) {
             throw new IllegalStateException("Elevator " + id + " is in maintenance");
         }
 
-        lock.lock();
-        try {
-            if (floor >= currentFloor) {
-                upQueue.offer(floor);
-            } else {
-                downQueue.offer(floor);
-            }
-        } finally {
-            lock.unlock();
+        if (floor >= currentFloor) {
+            upQueue.offer(floor);
+        } else {
+            downQueue.offer(floor);
         }
         notifyObservers("stop queued: " + floor);
     }
@@ -142,7 +134,7 @@ public class Elevator {
         return upQueue.size() + downQueue.size();
     }
 
-    public void setDirection(Direction direction) {
+    public synchronized void setDirection(Direction direction) {
         if (this.direction == direction) {
             return;
         }
@@ -150,7 +142,7 @@ public class Elevator {
         notifyObservers("direction changed");
     }
 
-    public void setStatus(ElevatorStatus status) {
+    public synchronized void setStatus(ElevatorStatus status) {
         if (this.status == status) {
             return;
         }
@@ -158,82 +150,57 @@ public class Elevator {
         notifyObservers("status changed");
     }
 
-    public void setState(ElevatorState state) {
+    public synchronized void setState(ElevatorState state) {
         this.state = state;
     }
 
-    public void moveToFloor(int targetFloor) {
+    public synchronized void moveToFloor(int targetFloor) {
         validateFloor(targetFloor);
-        lock.lock();
-        try {
-            if (targetFloor == currentFloor) {
-                notifyObservers("already at floor " + targetFloor);
-                return;
-            }
+        if (targetFloor == currentFloor) {
+            notifyObservers("already at floor " + targetFloor);
+            return;
+        }
 
-            direction = Direction.between(currentFloor, targetFloor);
-            status = ElevatorStatus.MOVING;
-            notifyObservers("movement started toward " + targetFloor);
+        direction = Direction.between(currentFloor, targetFloor);
+        status = ElevatorStatus.MOVING;
+        notifyObservers("movement started toward " + targetFloor);
 
-            while (currentFloor != targetFloor) {
-                currentFloor += direction == Direction.UP ? 1 : -1;
-                notifyObservers("floor changed");
-                sleep(DEFAULT_MOVE_DELAY_MILLIS);
-            }
-        } finally {
-            lock.unlock();
+        while (currentFloor != targetFloor) {
+            currentFloor += direction == Direction.UP ? 1 : -1;
+            notifyObservers("floor changed");
+            sleep(DEFAULT_MOVE_DELAY_MILLIS);
         }
     }
 
-    public void openDoor() {
-        lock.lock();
-        try {
-            status = ElevatorStatus.DOOR_OPEN;
-            direction = Direction.IDLE;
-            door.open();
-        } finally {
-            lock.unlock();
-        }
+    public synchronized void openDoor() {
+        status = ElevatorStatus.DOOR_OPEN;
+        direction = Direction.IDLE;
+        door.open();
         notifyObservers("door opened");
     }
 
-    public void closeDoor() {
-        lock.lock();
-        try {
-            door.close();
-            status = ElevatorStatus.IDLE;
-        } finally {
-            lock.unlock();
-        }
+    public synchronized void closeDoor() {
+        door.close();
+        status = ElevatorStatus.IDLE;
         notifyObservers("door closed");
     }
 
-    public void enterMaintenance() {
-        lock.lock();
-        try {
-            upQueue.clear();
-            downQueue.clear();
-            direction = Direction.IDLE;
-            status = ElevatorStatus.MAINTENANCE;
-            state = new MaintenanceState();
-        } finally {
-            lock.unlock();
-        }
+    public synchronized void enterMaintenance() {
+        upQueue.clear();
+        downQueue.clear();
+        direction = Direction.IDLE;
+        status = ElevatorStatus.MAINTENANCE;
+        state = new MaintenanceState();
         notifyObservers("entered maintenance");
     }
 
-    public void exitMaintenance() {
-        lock.lock();
-        try {
-            status = ElevatorStatus.IDLE;
-            state = new IdleState();
-        } finally {
-            lock.unlock();
-        }
+    public synchronized void exitMaintenance() {
+        status = ElevatorStatus.IDLE;
+        state = new IdleState();
         notifyObservers("exited maintenance");
     }
 
-    public ElevatorSnapshot snapshot() {
+    public synchronized ElevatorSnapshot snapshot() {
         return new ElevatorSnapshot(
                 id,
                 currentFloor,

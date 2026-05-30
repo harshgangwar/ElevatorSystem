@@ -86,16 +86,24 @@ The elevator uses `CopyOnWriteArrayList` so observers can be added while workers
 - Each elevator runs in its own worker thread.
 - Requests are stored in `PriorityBlockingQueue`.
 - Shared elevator fields use `volatile` for visibility.
-- Per-elevator mutation is guarded by a `ReentrantLock`.
-- Controller assignment uses a separate short-lived lock.
+- Controller assignment uses a `synchronized` method so two submitter threads cannot assign the same request at the same time.
+- Per-elevator mutations such as adding stops, moving, opening doors, and maintenance transitions are guarded by `synchronized` methods on the elevator object.
+- This keeps the locking model simple enough for LLD interviews while still allowing different elevators to run on different worker threads.
 
 ### Deadlock Avoidance
 
 The code follows a simple lock policy:
 
-- The controller lock is used only to choose an elevator and enqueue the request.
-- Elevator locks are never acquired while holding another elevator lock.
+- The controller monitor is used only to choose an elevator and enqueue the request.
+- Each elevator owns its own monitor through `synchronized` methods.
+- Elevator monitors are never acquired while holding another elevator monitor.
 - Worker threads do not acquire the controller lock.
-- Observer callbacks are fired after local state is updated and never require controller locks.
+- Observer callbacks never require controller locks.
 
 That keeps lock ownership shallow and prevents circular waits.
+
+### Interview Trade-off
+
+`synchronized` is intentionally simpler than `ReentrantLock`. A production version may prefer
+`ReentrantLock` for `tryLock`, timeouts, fairness, or finer-grained locking. For a machine-coding
+round, the current version is easier to write, explain, and debug.
